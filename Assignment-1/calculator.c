@@ -2,82 +2,101 @@
 #include <ctype.h>
 
 int main() {
-    char str[1000];
+    char expression[1000];
 
     printf("Enter expression: ");
-    fgets(str, sizeof(str), stdin);
 
-    int i = 0;
-    int num = 0;
-    int ans = 0;
-    int temp = 0;
-    char op = '+';
-    int needNum = 1;
-    int hasNum = 0;
+    if (fgets(expression, sizeof(expression), stdin) == NULL) {
+        printf("Error: Invalid input.\n");
+        return 0;
+    }
 
-    while (str[i] != '\0' && str[i] != '\n') {
-        if (str[i] == ' ') {
-            i++;
+    int index = 0;
+    long long number = 0;
+    long long result = 0;
+    long long current = 0;
+    char operator = '+';
+    int expecting = 1;
+    int found = 0;
+
+    while (expression[index] != '\0' && expression[index] != '\n') {
+
+        if (expression[index] == ' ') {
+            index++;
             continue;
         }
 
-        if (isdigit(str[i])) {
-            if (needNum == 0) {
+        if (isdigit(expression[index])) {
+
+            if (expecting == 0) {
                 printf("Error: Invalid expression.\n");
                 return 0;
             }
 
-            num = 0;
+            number = 0;
 
-            while (isdigit(str[i])) {
-                num = num * 10 + (str[i] - '0');
-                i++;
+            while (isdigit(expression[index])) {
+                number = number * 10 + (expression[index] - '0');
+                index++;
             }
 
-            if (op == '+') {
-                temp = num;
-            }else if (op == '-') {
-                temp = -num;
-            }else if (op == '*') {
-                temp = temp * num;
-            }else if (op == '/') {
+            if (operator == '+') {
+                current = number;
+            }
+            else if (operator == '-') {
+                current = -number;
+            }
+            else if (operator == '*') {
+                current = current * number;
+            }
+            else if (operator == '/') {
 
-                if (num == 0) {
+                if (number == 0) {
                     printf("Error: Division by zero.\n");
                     return 0;
                 }
-                temp = temp / num;
-            }
-            hasNum = 1;
-            needNum = 0;
-        }else if (str[i] == '+' || str[i] == '-' || str[i] == '*' || str[i] == '/') {
 
-            if (needNum == 1) {
+                current = current / number;
+            }
+
+            found = 1;
+            expecting = 0;
+        }
+
+        else if (expression[index] == '+' ||
+                 expression[index] == '-' ||
+                 expression[index] == '*' ||
+                 expression[index] == '/') {
+
+            if (expecting == 1) {
                 printf("Error: Invalid expression.\n");
                 return 0;
             }
 
-            op = str[i];
+            operator = expression[index];
 
-            if (op == '+' || op == '-') {
-                ans = ans + temp;
+            if (operator == '+' || operator == '-') {
+                result = result + current;
             }
-            needNum = 1;
-            i++;
-        }else {
+
+            expecting = 1;
+            index++;
+        }
+
+        else {
             printf("Error: Invalid expression.\n");
             return 0;
         }
     }
-    
-    if (hasNum == 0 || needNum == 1) {
+
+    if (found == 0 || expecting == 1) {
         printf("Error: Invalid expression.\n");
         return 0;
     }
-    
-    ans = ans + temp;
 
-    printf("%d\n", ans);
+    result = result + current;
+
+    printf("%lld\n", result);
 
     return 0;
 }
