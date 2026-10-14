@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 
 struct Student {
@@ -42,20 +43,20 @@ void printStars(char grade) {
     else
         count = 2;
 
-    for (int i = 0; i < count; i++)
+    for (int star = 0; star < count; star++)
         printf("*");
 }
 
-void printRolls(struct Student student[], int size, int index) {
-    if (index == size)
+void printRolls(struct Student student[], int size, int position) {
+    if (position == size)
         return;
 
-    printf("%d", student[index].roll);
+    printf("%d", student[position].roll);
 
-    if (index < size - 1)
+    if (position < size - 1)
         printf(" ");
 
-    printRolls(student, size, index + 1);
+    printRolls(student, size, position + 1);
 }
 
 int main() {
@@ -70,29 +71,29 @@ int main() {
 
     struct Student student[count];
 
-    for (int i = 0; i < count; i++) {
+    for (int studentno = 0; studentno < count; studentno++) {
         scanf("%d %s %d %d %d",
-              &student[i].roll,
-              student[i].name,
-              &student[i].mark1,
-              &student[i].mark2,
-              &student[i].mark3);
+              &student[studentno].roll,
+              student[studentno].name,
+              &student[studentno].mark1,
+              &student[studentno].mark2,
+              &student[studentno].mark3);
 
-        if (student[i].mark1 < 0 || student[i].mark1 > 100 ||
-            student[i].mark2 < 0 || student[i].mark2 > 100 ||
-            student[i].mark3 < 0 || student[i].mark3 > 100) {
-            printf("Invalid marks for student %d\n", student[i].roll);
+        if (student[studentno].mark1 < 0 || student[studentno].mark1 > 100 ||
+            student[studentno].mark2 < 0 || student[studentno].mark2 > 100 ||
+            student[studentno].mark3 < 0 || student[studentno].mark3 > 100) {
+            printf("Invalid marks for student %d\n", student[studentno].roll);
             return 0;
         }
     }
 
-    for (int i = 0; i < count; i++) {
-        int total = totalMarks(student[i]);
-        float average = averageMarks(student[i]);
+    for (int studentno = 0; studentno < count; studentno++) {
+        int total = totalMarks(student[studentno]);
+        float average = averageMarks(student[studentno]);
         char grade = getGrade(average);
 
-        printf("Roll: %d\n", student[i].roll);
-        printf("Name: %s\n", student[i].name);
+        printf("Roll: %d\n", student[studentno].roll);
+        printf("Name: %s\n", student[studentno].name);
         printf("Total: %d\n", total);
         printf("Average: %.2f\n", average);
         printf("Grade: %c\n", grade);
