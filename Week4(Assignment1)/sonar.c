@@ -3,146 +3,182 @@
 #include <string.h>
 #include <time.h>
 
-int **slot(int **g, int n, int r, int c) {
-    return g + r * n + c;
+int **slot(int **grid, int size, int row, int col) {
+    return grid + row * size + col;
 }
 
 int readSize(void) {
     char line[100];
     char *end;
-    long n;
-    size_t len;
-    int ch;
+    long size;
+    size_t length;
+    int inputChar;
 
     while (1) {
         printf("Enter matrix size (2-10): ");
+
         if (fgets(line, sizeof line, stdin) == NULL) {
             printf("\nNo input received.\n");
             exit(1);
         }
-        len = strlen(line);
-        if (len == sizeof line - 1 && line[len - 1] != '\n') {
-            while ((ch = getchar()) != '\n' && ch != EOF)
+
+        length = strlen(line);
+
+        if (length == sizeof line - 1 && line[length - 1] != '\n') {
+            while ((inputChar = getchar()) != '\n' && inputChar != EOF)
                 ;
+
             printf("Input too long. Enter a number from 2 to 10.\n");
             continue;
         }
-        n = strtol(line, &end, 10);
+
+        size = strtol(line, &end, 10);
+
         while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')
             end++;
+
         if (end == line || *end != '\0') {
             printf("Invalid input. Enter a whole number.\n");
             continue;
         }
-        if (n < 2 || n > 10) {
+
+        if (size < 2 || size > 10) {
             printf("Size must be between 2 and 10.\n");
             continue;
         }
-        return (int)n;
+
+        return (int)size;
     }
 }
 
-void show(int **g, int n) {
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++)
-            printf("%4d", **slot(g, n, i, j));
+void show(int **grid, int size) {
+    for (int row = 0; row < size; row++) {
+        for (int col = 0; col < size; col++)
+            printf("%4d", **slot(grid, size, row, col));
+
         printf("\n");
     }
 }
 
-void rotate(int **g, int n) {
-    for (int l = 0; l < n / 2; l++) {
-        for (int k = l; k < n - 1 - l; k++) {
-            int *tmp = *slot(g, n, l, k);
-            *slot(g, n, l, k) = *slot(g, n, n - 1 - k, l);
-            *slot(g, n, n - 1 - k, l) = *slot(g, n, n - 1 - l, n - 1 - k);
-            *slot(g, n, n - 1 - l, n - 1 - k) = *slot(g, n, k, n - 1 - l);
-            *slot(g, n, k, n - 1 - l) = tmp;
+void rotate(int **grid, int size) {
+    for (int layer = 0; layer < size / 2; layer++) {
+        for (int step = layer; step < size - 1 - layer; step++) {
+
+            int *temp = *slot(grid, size, layer, step);
+
+            *slot(grid, size, layer, step) =
+                *slot(grid, size, size - 1 - step, layer);
+
+            *slot(grid, size, size - 1 - step, layer) =
+                *slot(grid, size, size - 1 - layer, size - 1 - step);
+
+            *slot(grid, size, size - 1 - layer, size - 1 - step) =
+                *slot(grid, size, step, size - 1 - layer);
+
+            *slot(grid, size, step, size - 1 - layer) = temp;
         }
     }
 }
 
-int smooth(int **g, int n) {
-    int *prev = malloc(n * sizeof(int));
-    int *cur = malloc(n * sizeof(int));
-    if (prev == NULL || cur == NULL) {
-        free(prev);
-        free(cur);
+int smooth(int **grid, int size) {
+    int *previous = malloc(size * sizeof(int));
+    int *current = malloc(size * sizeof(int));
+
+    if (previous == NULL || current == NULL) {
+        free(previous);
+        free(current);
         return 0;
     }
 
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++)
-            *(cur + j) = **slot(g, n, i, j);
+    for (int row = 0; row < size; row++) {
 
-        for (int j = 0; j < n; j++) {
-            int sum = 0, cnt = 0;
-            for (int c = j - 1; c <= j + 1; c++) {
-                if (c < 0 || c >= n)
+        for (int col = 0; col < size; col++)
+            *(current + col) = **slot(grid, size, row, col);
+
+        for (int col = 0; col < size; col++) {
+            int sum = 0, count = 0;
+
+            for (int neighbor = col - 1; neighbor <= col + 1; neighbor++) {
+
+                if (neighbor < 0 || neighbor >= size)
                     continue;
-                if (i > 0) {
-                    sum += *(prev + c);
-                    cnt++;
+
+                if (row > 0) {
+                    sum += *(previous + neighbor);
+                    count++;
                 }
-                sum += *(cur + c);
-                cnt++;
-                if (i < n - 1) {
-                    sum += **slot(g, n, i + 1, c);
-                    cnt++;
+
+                sum += *(current + neighbor);
+                count++;
+
+                if (row < size - 1) {
+                    sum += **slot(grid, size, row + 1, neighbor);
+                    count++;
                 }
             }
-            **slot(g, n, i, j) = sum / cnt;
+
+            **slot(grid, size, row, col) = sum / count;
         }
 
-        int *tmp = prev;
-        prev = cur;
-        cur = tmp;
+        int *temp = previous;
+        previous = current;
+        current = temp;
     }
 
-    free(prev);
-    free(cur);
+    free(previous);
+    free(current);
+
     return 1;
 }
 
 int main(void) {
-    int n = readSize();
-    int total = n * n;
+    int size = readSize();
+    int total = size * size;
 
     int **grid = malloc(total * sizeof(int *));
+
     if (grid == NULL) {
         printf("Memory allocation failed.\n");
         return 1;
     }
 
     srand((unsigned)time(NULL));
-    for (int k = 0; k < total; k++) {
-        *(grid + k) = malloc(sizeof(int));
-        if (*(grid + k) == NULL) {
+
+    for (int index = 0; index < total; index++) {
+        *(grid + index) = malloc(sizeof(int));
+
+        if (*(grid + index) == NULL) {
             printf("Memory allocation failed.\n");
-            for (int m = 0; m < k; m++)
-                free(*(grid + m));
+
+            for (int count = 0; count < index; count++)
+                free(*(grid + count));
+
             free(grid);
             return 1;
         }
-        **(grid + k) = rand() % 256;
+
+        **(grid + index) = rand() % 256;
     }
 
     printf("\nOriginal Randomly Generated Matrix:\n");
-    show(grid, n);
+    show(grid, size);
 
-    rotate(grid, n);
+    rotate(grid, size);
+
     printf("\nMatrix after 90 degree Clockwise Rotation:\n");
-    show(grid, n);
+    show(grid, size);
 
-    if (!smooth(grid, n)) {
+    if (!smooth(grid, size)) {
         printf("Memory allocation failed.\n");
     } else {
         printf("\nMatrix after Applying 3x3 Smoothing Filter:\n");
-        show(grid, n);
+        show(grid, size);
     }
 
-    for (int k = 0; k < total; k++)
-        free(*(grid + k));
+    for (int index = 0; index < total; index++)
+        free(*(grid + index));
+
     free(grid);
+
     return 0;
 }
