@@ -1,86 +1,98 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h>
 
-int **slot(int **grid, int size, int row, int col) {
-    return grid + row * size + col;
+#define INPUT_BUFFER_SIZE 100
+#define MIN_SIZE 2
+#define MAX_SIZE 10
+#define MAX_INTENSITY 255
+
+int *getCellPointer(int **grid, int size, int row, int col) {
+    return *(grid + row * size + col);
 }
 
-int readSize(void) {
-    char line[100];
+bool readMatrixSize(int *matrixSize) {
+    char line[INPUT_BUFFER_SIZE];
     char *end;
     long size;
     size_t length;
     int inputChar;
 
     while (1) {
-        printf("Enter matrix size (2-10): ");
+        printf("Enter matrix size (%d-%d): ", MIN_SIZE, MAX_SIZE);
 
-        if (fgets(line, sizeof line, stdin) == NULL) {
+        if (fgets(line, sizeof(line), stdin) == NULL) {
             printf("\nNo input received.\n");
-            exit(1);
+            return false;
         }
 
         length = strlen(line);
 
-        if (length == sizeof line - 1 && line[length - 1] != '\n') {
-            while ((inputChar = getchar()) != '\n' && inputChar != EOF)
-                ;
+        if (length == sizeof(line) - 1 && line[length - 1] != '\n') {
+            while ((inputChar = getchar()) != '\n' && inputChar != EOF) {
+            }
 
-            printf("Input too long. Enter a number from 2 to 10.\n");
+            printf("Input too long. Enter a number from %d to %d.\n",
+                   MIN_SIZE, MAX_SIZE);
             continue;
         }
 
         size = strtol(line, &end, 10);
 
-        while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')
+        while (*end == ' ' || *end == '\t' ||
+               *end == '\n' || *end == '\r') {
             end++;
+        }
 
         if (end == line || *end != '\0') {
             printf("Invalid input. Enter a whole number.\n");
             continue;
         }
 
-        if (size < 2 || size > 10) {
-            printf("Size must be between 2 and 10.\n");
+        if (size < MIN_SIZE || size > MAX_SIZE) {
+            printf("Size must be between %d and %d.\n",
+                   MIN_SIZE, MAX_SIZE);
             continue;
         }
 
-        return (int)size;
+        *matrixSize = (int)size;
+        return true;
     }
 }
 
-void show(int **grid, int size) {
+void printMatrix(int **grid, int size) {
     for (int row = 0; row < size; row++) {
-        for (int col = 0; col < size; col++)
-            printf("%4d", **slot(grid, size, row, col));
-
+        for (int col = 0; col < size; col++) {
+            printf("%4d", *getCellPointer(grid, size, row, col));
+        }
         printf("\n");
     }
 }
 
-void rotate(int **grid, int size) {
+void rotateMatrixClockwise(int **grid, int size) {
     for (int layer = 0; layer < size / 2; layer++) {
         for (int step = layer; step < size - 1 - layer; step++) {
 
-            int *temp = *slot(grid, size, layer, step);
+            int *temp = getCellPointer(grid, size, layer, step);
 
-            *slot(grid, size, layer, step) =
-                *slot(grid, size, size - 1 - step, layer);
+            *getCellPointer(grid, size, layer, step) =
+                *getCellPointer(grid, size, size - 1 - step, layer);
 
-            *slot(grid, size, size - 1 - step, layer) =
-                *slot(grid, size, size - 1 - layer, size - 1 - step);
+            *getCellPointer(grid, size, size - 1 - step, layer) =
+                *getCellPointer(grid, size, size - 1 - layer, size - 1 - step);
 
-            *slot(grid, size, size - 1 - layer, size - 1 - step) =
-                *slot(grid, size, step, size - 1 - layer);
+            *getCellPointer(grid, size, size - 1 - layer, size - 1 - step) =
+                *getCellPointer(grid, size, step, size - 1 - layer);
 
-            *slot(grid, size, step, size - 1 - layer) = temp;
+            *getCellPointer(grid, size, step, size - 1 - layer) = *temp;
         }
     }
 }
 
-int smooth(int **grid, int size) {
+int applySmoothingFilter(int **grid, int size) {
     int *previous = malloc(size * sizeof(int));
     int *current = malloc(size * sizeof(int));
 
@@ -92,16 +104,19 @@ int smooth(int **grid, int size) {
 
     for (int row = 0; row < size; row++) {
 
-        for (int col = 0; col < size; col++)
-            *(current + col) = **slot(grid, size, row, col);
+        for (int col = 0; col < size; col++) {
+            *(current + col) = *getCellPointer(grid, size, row, col);
+        }
 
         for (int col = 0; col < size; col++) {
-            int sum = 0, count = 0;
+            int sum = 0;
+            int count = 0;
 
             for (int neighbor = col - 1; neighbor <= col + 1; neighbor++) {
 
-                if (neighbor < 0 || neighbor >= size)
+                if (neighbor < 0 || neighbor >= size) {
                     continue;
+                }
 
                 if (row > 0) {
                     sum += *(previous + neighbor);
@@ -112,12 +127,12 @@ int smooth(int **grid, int size) {
                 count++;
 
                 if (row < size - 1) {
-                    sum += **slot(grid, size, row + 1, neighbor);
+                    sum += *getCellPointer(grid, size, row + 1, neighbor);
                     count++;
                 }
             }
 
-            **slot(grid, size, row, col) = sum / count;
+            *getCellPointer(grid, size, row, col) = sum / count;
         }
 
         int *temp = previous;
@@ -131,11 +146,49 @@ int smooth(int **grid, int size) {
     return 1;
 }
 
-int main(void) {
-    int size = readSize();
+void freeMatrix(int **grid, int size) {
+    if (grid == NULL) {
+        return;
+    }
+
+    for (int index = 0; index < size * size; index++) {
+        free(*(grid + index));
+    }
+
+    free(grid);
+}
+
+int **createMatrix(int size) {
     int total = size * size;
 
-    int **grid = malloc(total * sizeof(int *));
+    int **grid = calloc(total, sizeof(int *));
+
+    if (grid == NULL) {
+        return NULL;
+    }
+
+    for (int index = 0; index < total; index++) {
+        *(grid + index) = malloc(sizeof(int));
+
+        if (*(grid + index) == NULL) {
+            freeMatrix(grid, size);
+            return NULL;
+        }
+    }
+
+    return grid;
+}
+
+int main(void) {
+    int size = 0;
+
+    if (!readMatrixSize(&size)) {
+        return 1;
+    }
+
+    int total = size * size;
+
+    int **grid = createMatrix(size);
 
     if (grid == NULL) {
         printf("Memory allocation failed.\n");
@@ -145,40 +198,27 @@ int main(void) {
     srand((unsigned)time(NULL));
 
     for (int index = 0; index < total; index++) {
-        *(grid + index) = malloc(sizeof(int));
-
-        if (*(grid + index) == NULL) {
-            printf("Memory allocation failed.\n");
-
-            for (int count = 0; count < index; count++)
-                free(*(grid + count));
-
-            free(grid);
-            return 1;
-        }
-
-        **(grid + index) = rand() % 256;
+        **(grid + index) = rand() % (MAX_INTENSITY + 1);
     }
 
     printf("\nOriginal Randomly Generated Matrix:\n");
-    show(grid, size);
+    printMatrix(grid, size);
 
-    rotate(grid, size);
+    rotateMatrixClockwise(grid, size);
 
     printf("\nMatrix after 90 degree Clockwise Rotation:\n");
-    show(grid, size);
+    printMatrix(grid, size);
 
-    if (!smooth(grid, size)) {
+    if (!applySmoothingFilter(grid, size)) {
         printf("Memory allocation failed.\n");
+        freeMatrix(grid, size);
+        return 1;
     } else {
         printf("\nMatrix after Applying 3x3 Smoothing Filter:\n");
-        show(grid, size);
+        printMatrix(grid, size);
     }
 
-    for (int index = 0; index < total; index++)
-        free(*(grid + index));
-
-    free(grid);
+    freeMatrix(grid, size);
 
     return 0;
 }
