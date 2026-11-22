@@ -52,80 +52,80 @@ static const char *rolePlural[] = {"", "Batsmen", "Bowlers", "All-rounders"};
 
 static void freeAll(void) {
     if (!teamList) return;
-    for (int i = 0; i < teamCount; i++) {
-        PlayerInfo *cur = teamList[i].head;
-        while (cur) {
-            PlayerInfo *nxt = cur->next;
-            free(cur);
-            cur = nxt;
+    for (int position = 0; position < teamCount; position++) {
+        PlayerInfo *current = teamList[position].head;
+        while (current) {
+            PlayerInfo *following = current->next;
+            free(current);
+            current = following;
         }
     }
     free(teamList);
     teamList = NULL;
 }
 
-static char *trim(char *s) {
-    while (isspace((unsigned char)*s)) s++;
-    int len = (int)strlen(s);
-    while (len > 0 && isspace((unsigned char)s[len - 1])) s[--len] = '\0';
-    return s;
+static char *trim(char *text) {
+    while (isspace((unsigned char)*text)) text++;
+    int length = (int)strlen(text);
+    while (length > 0 && isspace((unsigned char)text[length - 1])) text[--length] = '\0';
+    return text;
 }
 
-static int readLine(char *buf, int size) {
-    if (!fgets(buf, size, stdin)) {
+static int readLine(char *buffer, int size) {
+    if (!fgets(buffer, size, stdin)) {
         printf("\nInput ended. Exiting.\n");
         freeAll();
         exit(0);
     }
-    int len = (int)strlen(buf);
-    if (len > 0 && buf[len - 1] == '\n') {
-        buf[--len] = '\0';
+    int length = (int)strlen(buffer);
+    if (length > 0 && buffer[length - 1] == '\n') {
+        buffer[--length] = '\0';
         return 1;
     }
-    int c, extra = 0;
-    while ((c = getchar()) != '\n' && c != EOF) extra = 1;
+    int letter, extra = 0;
+    while ((letter = getchar()) != '\n' && letter != EOF) extra = 1;
     return extra ? 0 : 1;
 }
 
-static int readInt(const char *msg, int low, int high) {
-    char buf[LINE_SIZE];
+static int readInt(const char *message, int low, int high) {
+    char buffer[LINE_SIZE];
     while (1) {
-        printf("%s", msg);
-        int ok = readLine(buf, sizeof(buf));
-        char *s = trim(buf);
-        char *end;
+        printf("%s", message);
+        int valid = readLine(buffer, sizeof(buffer));
+        char *text = trim(buffer);
+        char *leftover;
         errno = 0;
-        long val = strtol(s, &end, 10);
-        if (ok && *s != '\0' && *end == '\0' && errno == 0 && val >= low && val <= high)
-            return (int)val;
+        long value = strtol(text, &leftover, 10);
+        if (valid && *text != '\0' && *leftover == '\0' && errno == 0 && value >= low && value <= high)
+            return (int)value;
         printf("Invalid input. Enter a whole number from %d to %d.\n", low, high);
     }
 }
 
-static float readFloat(const char *msg, float low, float high) {
-    char buf[LINE_SIZE];
+static float readFloat(const char *message, float low, float high) {
+    char buffer[LINE_SIZE];
     while (1) {
-        printf("%s", msg);
-        int ok = readLine(buf, sizeof(buf));
-        char *s = trim(buf);
-        char *end;
+        printf("%s", message);
+        int valid = readLine(buffer, sizeof(buffer));
+        char *text = trim(buffer);
+        char *leftover;
         errno = 0;
-        double val = strtod(s, &end);
-        if (ok && *s != '\0' && *end == '\0' && errno == 0 && isfinite(val) && val >= low && val <= high)
-            return (float)val;
+        double value = strtod(text, &leftover);
+        if (valid && *text != '\0' && *leftover == '\0' && errno == 0 && isfinite(value) && value >= low && value <= high)
+            return (float)value;
         printf("Invalid input. Enter a number from %.1f to %.1f.\n", low, high);
     }
 }
 
-static void readName(char *out) {
-    char buf[LINE_SIZE];
+static void readName(char *target) {
+    char buffer[LINE_SIZE];
     while (1) {
         printf("Name: ");
-        int ok = readLine(buf, sizeof(buf));
-        char *s = trim(buf);
-        int len = (int)strlen(s);
-        if (ok && len >= 1 && len <= MAX_NAME) {
-            strcpy(out, s);
+        int valid = readLine(buffer, sizeof(buffer));
+        char *text = trim(buffer);
+        int length = (int)strlen(text);
+        if (valid && length >= 1 && length <= MAX_NAME) {
+            strcpy(target, text);
             return;
         }
         printf("Invalid name. Length must be 1 to %d characters.\n", MAX_NAME);
@@ -144,9 +144,9 @@ static Team *findTeam(int id) {
 }
 
 static int idExists(int id) {
-    for (int i = 0; i < teamCount; i++)
-        for (PlayerInfo *p = teamList[i].head; p; p = p->next)
-            if (p->id == id) return 1;
+    for (int position = 0; position < teamCount; position++)
+        for (PlayerInfo *player = teamList[position].head; player; player = player->next)
+            if (player->id == id) return 1;
     return 0;
 }
 
@@ -156,54 +156,54 @@ static float findPerf(int role, float avg, float sr, int wkts, float eco) {
     return avg * sr / 100 + wkts * 2;
 }
 
-static void attachToTeam(Team *t, PlayerInfo *p) {
-    if (t->tail) t->tail->next = p;
-    else t->head = p;
-    t->tail = p;
-    t->total++;
-    if (p->role != BOWL) {
-        t->batCount++;
-        t->srSum += p->sr;
+static void attachToTeam(Team *team, PlayerInfo *player) {
+    if (team->tail) team->tail->next = player;
+    else team->head = player;
+    team->tail = player;
+    team->total++;
+    if (player->role != BOWL) {
+        team->batCount++;
+        team->srSum += player->sr;
     }
 }
 
-static void insertSorted(Team *t, PlayerInfo *p) {
-    PlayerInfo **cur = &t->roleHead[p->role];
-    while (*cur && (*cur)->perf >= p->perf) cur = &(*cur)->teamRoleNext;
-    p->teamRoleNext = *cur;
-    *cur = p;
+static void insertSorted(Team *team, PlayerInfo *player) {
+    PlayerInfo **current = &team->roleHead[player->role];
+    while (*current && (*current)->perf >= player->perf) current = &(*current)->teamRoleNext;
+    player->teamRoleNext = *current;
+    *current = player;
 
-    cur = &allRoleHead[p->role];
-    while (*cur && (*cur)->perf >= p->perf) cur = &(*cur)->allRoleNext;
-    p->allRoleNext = *cur;
-    *cur = p;
+    current = &allRoleHead[player->role];
+    while (*current && (*current)->perf >= player->perf) current = &(*current)->allRoleNext;
+    player->allRoleNext = *current;
+    *current = player;
 }
 
-static void addPlayer(Team *t, PlayerInfo *p) {
-    attachToTeam(t, p);
-    insertSorted(t, p);
+static void addPlayer(Team *team, PlayerInfo *player) {
+    attachToTeam(team, player);
+    insertSorted(team, player);
 }
 
 static PlayerInfo *makePlayer(int id, const char *name, const char *teamName, int role,
                               int runs, float avg, float sr, int wkts, float eco) {
-    PlayerInfo *p = (PlayerInfo *)calloc(1, sizeof(PlayerInfo));
-    if (!p) {
+    PlayerInfo *player = (PlayerInfo *)calloc(1, sizeof(PlayerInfo));
+    if (!player) {
         printf("Memory allocation failed.\n");
         freeAll();
         exit(1);
     }
-    p->id = id;
-    snprintf(p->name, sizeof(p->name), "%s", name);
-    p->teamName = teamName;
-    p->role = role;
-    p->runs = runs;
-    p->avg = avg;
-    p->sr = sr;
-    p->wkts = wkts;
-    p->eco = eco;
-    p->perf = findPerf(role, avg, sr, wkts, eco);
-    p->order = nextOrder++;
-    return p;
+    player->id = id;
+    snprintf(player->name, sizeof(player->name), "%s", name);
+    player->teamName = teamName;
+    player->role = role;
+    player->runs = runs;
+    player->avg = avg;
+    player->sr = sr;
+    player->wkts = wkts;
+    player->eco = eco;
+    player->perf = findPerf(role, avg, sr, wkts, eco);
+    player->order = nextOrder++;
+    return player;
 }
 
 static int roleFromText(const char *text) {
@@ -213,19 +213,19 @@ static int roleFromText(const char *text) {
     return 0;
 }
 
-static int comparePerf(const void *a, const void *b) {
-    const PlayerInfo *x = *(PlayerInfo *const *)a;
-    const PlayerInfo *y = *(PlayerInfo *const *)b;
-    if (x->perf > y->perf) return -1;
-    if (x->perf < y->perf) return 1;
-    if (x->order < y->order) return -1;
-    if (x->order > y->order) return 1;
+static int comparePerf(const void *left, const void *right) {
+    const PlayerInfo *first = *(PlayerInfo *const *)left;
+    const PlayerInfo *second = *(PlayerInfo *const *)right;
+    if (first->perf > second->perf) return -1;
+    if (first->perf < second->perf) return 1;
+    if (first->order < second->order) return -1;
+    if (first->order > second->order) return 1;
     return 0;
 }
 
 static Team *findTeamByName(const char *name) {
-    for (int i = 0; i < teamCount; i++)
-        if (strcmp(teamList[i].name, name) == 0) return &teamList[i];
+    for (int position = 0; position < teamCount; position++)
+        if (strcmp(teamList[position].name, name) == 0) return &teamList[position];
     return NULL;
 }
 
@@ -235,9 +235,9 @@ static void loadData(void) {
         printf("Memory allocation failed.\n");
         exit(1);
     }
-    for (int i = 0; i < teamCount; i++) {
-        teamList[i].id = i + 1;
-        snprintf(teamList[i].name, sizeof(teamList[i].name), "%s", teams[i]);
+    for (int position = 0; position < teamCount; position++) {
+        teamList[position].id = position + 1;
+        snprintf(teamList[position].name, sizeof(teamList[position].name), "%s", teams[position]);
     }
     PlayerInfo **loaded = (PlayerInfo **)malloc(playerCount * sizeof(PlayerInfo *));
     if (!loaded) {
@@ -246,29 +246,29 @@ static void loadData(void) {
         exit(1);
     }
     int loadedCount = 0, skipped = 0;
-    for (int i = 0; i < playerCount; i++) {
-        Team *t = NULL;
-        for (int j = 0; j < teamCount; j++)
-            if (strcmp(teamList[j].name, players[i].team) == 0) t = &teamList[j];
-        int role = roleFromText(players[i].role);
-        if (!t || !role || t->total >= MAX_TEAM_PLAYERS || idExists(players[i].id)) {
+    for (int position = 0; position < playerCount; position++) {
+        Team *team = NULL;
+        for (int scan = 0; scan < teamCount; scan++)
+            if (strcmp(teamList[scan].name, players[position].team) == 0) team = &teamList[scan];
+        int role = roleFromText(players[position].role);
+        if (!team || !role || team->total >= MAX_TEAM_PLAYERS || idExists(players[position].id)) {
             skipped++;
             continue;
         }
-        PlayerInfo *p = makePlayer(players[i].id, players[i].name, t->name, role,
-                                   players[i].totalRuns, players[i].battingAverage,
-                                   players[i].strikeRate, players[i].wickets, players[i].economyRate);
-        attachToTeam(t, p);
-        loaded[loadedCount++] = p;
+        PlayerInfo *player = makePlayer(players[position].id, players[position].name, team->name, role,
+                                   players[position].totalRuns, players[position].battingAverage,
+                                   players[position].strikeRate, players[position].wickets, players[position].economyRate);
+        attachToTeam(team, player);
+        loaded[loadedCount++] = player;
     }
     qsort(loaded, loadedCount, sizeof(PlayerInfo *), comparePerf);
-    for (int i = loadedCount - 1; i >= 0; i--) {
-        PlayerInfo *p = loaded[i];
-        Team *t = findTeamByName(p->teamName);
-        p->teamRoleNext = t->roleHead[p->role];
-        t->roleHead[p->role] = p;
-        p->allRoleNext = allRoleHead[p->role];
-        allRoleHead[p->role] = p;
+    for (int position = loadedCount - 1; position >= 0; position--) {
+        PlayerInfo *player = loaded[position];
+        Team *team = findTeamByName(player->teamName);
+        player->teamRoleNext = team->roleHead[player->role];
+        team->roleHead[player->role] = player;
+        player->allRoleNext = allRoleHead[player->role];
+        allRoleHead[player->role] = player;
     }
     free(loaded);
     if (skipped > 0)
@@ -276,7 +276,7 @@ static void loadData(void) {
 }
 
 static void printLine(int width) {
-    for (int i = 0; i < width; i++) putchar('=');
+    for (int position = 0; position < width; position++) putchar('=');
     putchar('\n');
 }
 
@@ -288,26 +288,26 @@ static void printHeader(int showTeam) {
     printLine(showTeam ? 105 : 90);
 }
 
-static void printPlayer(const PlayerInfo *p, int showTeam) {
-    printf("%-6d %-22s ", p->id, p->name);
-    if (showTeam) printf("%-14s ", p->teamName);
+static void printPlayer(const PlayerInfo *player, int showTeam) {
+    printf("%-6d %-22s ", player->id, player->name);
+    if (showTeam) printf("%-14s ", player->teamName);
     printf("%-12s %-8d %-6.1f %-6.1f %-5d %-5.1f %.2f\n",
-           roleName[p->role], p->runs, p->avg, p->sr, p->wkts, p->eco, p->perf);
+           roleName[player->role], player->runs, player->avg, player->sr, player->wkts, player->eco, player->perf);
 }
 
-static double teamAvgSr(const Team *t) {
-    return t->batCount ? t->srSum / t->batCount : 0.0;
+static double teamAvgSr(const Team *team) {
+    return team->batCount ? team->srSum / team->batCount : 0.0;
 }
 
 static void addPlayerMenu(void) {
     int teamId = readInt("Enter Team ID to add player: ", 1, teamCount);
-    Team *t = findTeam(teamId);
-    if (!t) {
+    Team *team = findTeam(teamId);
+    if (!team) {
         printf("Team ID %d not found.\n", teamId);
         return;
     }
-    if (t->total >= MAX_TEAM_PLAYERS) {
-        printf("Team %s already has %d players. Cannot add more.\n", t->name, MAX_TEAM_PLAYERS);
+    if (team->total >= MAX_TEAM_PLAYERS) {
+        printf("Team %s already has %d players. Cannot add more.\n", team->name, MAX_TEAM_PLAYERS);
         return;
     }
     printf("Enter Player Details:\n");
@@ -326,27 +326,27 @@ static void addPlayerMenu(void) {
     int wkts = readInt("Wickets: ", 0, 10000);
     float eco = readFloat("Economy Rate: ", 0, 36);
 
-    addPlayer(t, makePlayer(id, name, t->name, role, runs, avg, sr, wkts, eco));
-    printf("Player added successfully to Team %s!\n", t->name);
+    addPlayer(team, makePlayer(id, name, team->name, role, runs, avg, sr, wkts, eco));
+    printf("Player added successfully to Team %s!\n", team->name);
 }
 
 static void showTeamPlayers(void) {
     int teamId = readInt("Enter Team ID: ", 1, teamCount);
-    Team *t = findTeam(teamId);
-    if (!t) {
+    Team *team = findTeam(teamId);
+    if (!team) {
         printf("Team ID %d not found.\n", teamId);
         return;
     }
-    printf("Players of Team %s:\n", t->name);
-    if (t->total == 0) {
+    printf("Players of Team %s:\n", team->name);
+    if (team->total == 0) {
         printf("No players in this team.\n");
         return;
     }
     printHeader(0);
-    for (PlayerInfo *p = t->head; p; p = p->next) printPlayer(p, 0);
+    for (PlayerInfo *player = team->head; player; player = player->next) printPlayer(player, 0);
     printLine(90);
-    printf("Total Players: %d\n", t->total);
-    printf("Average Batting Strike Rate: %.2f\n", teamAvgSr(t));
+    printf("Total Players: %d\n", team->total);
+    printf("Average Batting Strike Rate: %.2f\n", teamAvgSr(team));
 }
 
 static void showTeamsBySr(void) {
@@ -355,48 +355,48 @@ static void showTeamsBySr(void) {
         printf("Memory allocation failed.\n");
         return;
     }
-    for (int i = 0; i < teamCount; i++) order[i] = &teamList[i];
-    for (int i = 1; i < teamCount; i++) {
-        Team *key = order[i];
-        int j = i - 1;
-        while (j >= 0 && teamAvgSr(order[j]) < teamAvgSr(key)) {
-            order[j + 1] = order[j];
-            j--;
+    for (int position = 0; position < teamCount; position++) order[position] = &teamList[position];
+    for (int position = 1; position < teamCount; position++) {
+        Team *key = order[position];
+        int scan = position - 1;
+        while (scan >= 0 && teamAvgSr(order[scan]) < teamAvgSr(key)) {
+            order[scan + 1] = order[scan];
+            scan--;
         }
-        order[j + 1] = key;
+        order[scan + 1] = key;
     }
     printf("Teams Sorted by Average Batting Strike Rate\n");
     printLine(55);
     printf("%-5s %-16s %-12s %s\n", "ID", "Team Name", "Avg Bat SR", "Total Players");
     printLine(55);
-    for (int i = 0; i < teamCount; i++)
-        printf("%-5d %-16s %-12.2f %d\n", order[i]->id, order[i]->name, teamAvgSr(order[i]), order[i]->total);
+    for (int position = 0; position < teamCount; position++)
+        printf("%-5d %-16s %-12.2f %d\n", order[position]->id, order[position]->name, teamAvgSr(order[position]), order[position]->total);
     printLine(55);
     free(order);
 }
 
 static void showTopK(void) {
     int teamId = readInt("Enter Team ID: ", 1, teamCount);
-    Team *t = findTeam(teamId);
-    if (!t) {
+    Team *team = findTeam(teamId);
+    if (!team) {
         printf("Team ID %d not found.\n", teamId);
         return;
     }
     int role = readInt("Enter Role (1-Batsman, 2-Bowler, 3-All-rounder): ", 1, 3);
-    int k = readInt("Enter number of players: ", 1, MAX_TEAM_PLAYERS);
-    if (!t->roleHead[role]) {
-        printf("Team %s has no %s.\n", t->name, rolePlural[role]);
+    int limit = readInt("Enter number of players: ", 1, MAX_TEAM_PLAYERS);
+    if (!team->roleHead[role]) {
+        printf("Team %s has no %s.\n", team->name, rolePlural[role]);
         return;
     }
     int shown = 0;
-    for (PlayerInfo *p = t->roleHead[role]; p && shown < k; p = p->teamRoleNext) shown++;
-    if (shown < k)
-        printf("Team %s has only %d %s. Showing all of them.\n", t->name, shown, rolePlural[role]);
-    printf("Top %d %s of Team %s:\n", shown, rolePlural[role], t->name);
+    for (PlayerInfo *player = team->roleHead[role]; player && shown < limit; player = player->teamRoleNext) shown++;
+    if (shown < limit)
+        printf("Team %s has only %d %s. Showing all of them.\n", team->name, shown, rolePlural[role]);
+    printf("Top %d %s of Team %s:\n", shown, rolePlural[role], team->name);
     printHeader(0);
     shown = 0;
-    for (PlayerInfo *p = t->roleHead[role]; p && shown < k; p = p->teamRoleNext, shown++)
-        printPlayer(p, 0);
+    for (PlayerInfo *player = team->roleHead[role]; player && shown < limit; player = player->teamRoleNext, shown++)
+        printPlayer(player, 0);
     printLine(90);
 }
 
@@ -408,7 +408,7 @@ static void showRoleAcrossTeams(void) {
     }
     printf("%s of all teams:\n", rolePlural[role]);
     printHeader(1);
-    for (PlayerInfo *p = allRoleHead[role]; p; p = p->allRoleNext) printPlayer(p, 1);
+    for (PlayerInfo *player = allRoleHead[role]; player; player = player->allRoleNext) printPlayer(player, 1);
     printLine(105);
 }
 
