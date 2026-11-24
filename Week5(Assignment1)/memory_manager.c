@@ -5,21 +5,48 @@
 #include <errno.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MIN_POOL 1
 #define MAX_POOL 1000000
 #define START_CAPACITY 8
 #define LINE_SIZE 64
 #define NOT_FOUND ((size_t)-1)
+#define DEBUG_BYTE_MASK 0xFF
 
 typedef enum { FIRST_FIT = 1, BEST_FIT = 2, WORST_FIT = 3 } Strategy;
 typedef enum { INPUT_OK, INPUT_BAD, INPUT_EOF } InputState;
+
+typedef enum {
+    MENU_ALLOCATE = 1,
+    MENU_RELEASE = 2,
+    MENU_RESIZE = 3,
+    MENU_DISPLAY_MAP = 4,
+    MENU_DISPLAY_STATS = 5,
+    MENU_CHANGE_STRATEGY = 6,
+    MENU_EXIT = 7
+} MenuOption;
+
+typedef enum {
+    OP_OK,
+    OP_ERR_INVALID_SIZE,
+    OP_ERR_NO_IDS,
+    OP_ERR_NO_FIT,
+    OP_ERR_NO_RECORD_MEM,
+    OP_ERR_INVALID_ID,
+    OP_ERR_ALREADY_RELEASED,
+    OP_ERR_UNKNOWN_ID,
+    OP_NO_CHANGE,
+    OP_SHRUNK,
+    OP_EXPANDED_IN_PLACE,
+    OP_MOVED
+} OpResult;
 
 typedef struct {
     size_t start;
     size_t size;
     int id;
-    int is_free;
+    bool is_free;
 } Block;
 
 typedef struct {
@@ -86,7 +113,7 @@ static InputState read_number(const char *prompt, size_t *value)
     return INPUT_OK;
 }
 
-static int ask_strategy(Strategy *strategy)
+static bool ask_strategy(Strategy *strategy)
 {
     size_t choice;
     InputState state;
@@ -96,7 +123,7 @@ static int ask_strategy(Strategy *strategy)
             "Select allocation strategy (1. First Fit, 2. Best Fit, 3. Worst Fit): ",
             &choice);
         if (state == INPUT_EOF)
-            return 0;
+            return false;
         if (state == INPUT_BAD)
             continue;
         if (choice < FIRST_FIT || choice > WORST_FIT) {
@@ -104,7 +131,7 @@ static int ask_strategy(Strategy *strategy)
             continue;
         }
         *strategy = (Strategy)choice;
-        return 1;
+        return true;
     }
 }
 
@@ -136,7 +163,7 @@ static int init_manager(Manager *mgr, size_t pool_size)
     mgr->blocks[0].start = 0;
     mgr->blocks[0].size = pool_size;
     mgr->blocks[0].id = 0;
-    mgr->blocks[0].is_free = 1;
+    mgr->blocks[0].is_free = true;
     mgr->next_id = 1;
     mgr->strategy = FIRST_FIT;
     return 1;
@@ -244,6 +271,24 @@ static size_t find_by_id(const Manager *mgr, int id)
     return NOT_FOUND;
 }
 
+static OpResult find_allocation(const Manager *mgr, size_t id_value, size_t *out_slot)
+{
+    size_t slot;
+
+    if (id_value == 0 || id_value > INT_MAX)
+        return OP_ERR_INVALID_ID;
+
+    slot = find_by_id(mgr, (int)id_value);
+    if (slot == NOT_FOUND) {
+        if (id_value < (size_t)mgr->next_id)
+            return OP_ERR_ALREADY_RELEASED;
+        return OP_ERR_UNKNOWN_ID;
+    }
+
+    *out_slot = slot;
+    return OP_OK;
+}
+
 static void merge_free_blocks(Manager *mgr)
 {
     size_t slot = 0;
@@ -265,13 +310,13 @@ static void carve_block(Manager *mgr, size_t slot, size_t size, int id)
 
     mgr->blocks[slot].size = size;
     mgr->blocks[slot].id = id;
-    mgr->blocks[slot].is_free = 0;
+    mgr->blocks[slot].is_free = false;
 
     if (leftover > 0) {
         rest.start = old_start + size;
         rest.size = leftover;
         rest.id = 0;
-        rest.is_free = 1;
+        rest.is_free = true;
         insert_block(mgr, slot + 1, rest);
     }
 }
@@ -313,61 +358,45 @@ static void report_no_fit(const Manager *mgr, const char *action, size_t size)
     }
 }
 
-static void allocate_memory(Manager *mgr, size_t size)
+static OpResult allocate_memory(Manager *mgr, size_t size, int *out_id, size_t *out_start)
 {
     size_t slot;
 
-    if (size == 0 || size > mgr->pool_size) {
-        printf("Invalid size: must be between 1 and %zu.\n", mgr->pool_size);
-        return;
-    }
-    if (mgr->next_id == INT_MAX) {
-        printf("Allocation failed: no more allocation IDs available.\n");
-        return;
-    }
+    if (size == 0 || size > mgr->pool_size)
+        return OP_ERR_INVALID_SIZE;
+    if (mgr->next_id == INT_MAX)
+        return OP_ERR_NO_IDS;
 
     slot = find_free_block(mgr, size);
-    if (slot == NOT_FOUND) {
-        report_no_fit(mgr, "Allocation", size);
-        return;
-    }
-    if (mgr->blocks[slot].size > size && !make_room(mgr, 1)) {
-        printf("Allocation failed: out of memory for block records.\n");
-        return;
-    }
+    if (slot == NOT_FOUND)
+        return OP_ERR_NO_FIT;
+    if (mgr->blocks[slot].size > size && !make_room(mgr, 1))
+        return OP_ERR_NO_RECORD_MEM;
 
     carve_block(mgr, slot, size, mgr->next_id);
-    memset(mgr->pool + mgr->blocks[slot].start, mgr->next_id & 0xFF, size);
-    printf("Allocation successful. ID: %d, Start: %zu, Size: %zu\n",
-           mgr->next_id, mgr->blocks[slot].start, size);
+    /* Fill allocated bytes with the low byte of the ID to mark allocations for debugging */
+    memset(mgr->pool + mgr->blocks[slot].start, mgr->next_id & DEBUG_BYTE_MASK, size);
+    *out_id = mgr->next_id;
+    *out_start = mgr->blocks[slot].start;
     mgr->next_id++;
+    return OP_OK;
 }
 
-static void release_memory(Manager *mgr, size_t id_value)
+static OpResult release_memory(Manager *mgr, size_t id_value)
 {
     size_t slot;
+    OpResult res = find_allocation(mgr, id_value, &slot);
 
-    if (id_value == 0 || id_value > INT_MAX) {
-        printf("Invalid ID: allocation IDs are positive numbers.\n");
-        return;
-    }
+    if (res != OP_OK)
+        return res;
 
-    slot = find_by_id(mgr, (int)id_value);
-    if (slot == NOT_FOUND) {
-        if (id_value < (size_t)mgr->next_id)
-            printf("ID %zu is already released.\n", id_value);
-        else
-            printf("Unknown allocation ID: %zu.\n", id_value);
-        return;
-    }
-
-    mgr->blocks[slot].is_free = 1;
+    mgr->blocks[slot].is_free = true;
     mgr->blocks[slot].id = 0;
     merge_free_blocks(mgr);
-    printf("Allocation released.\n");
+    return OP_OK;
 }
 
-static void shrink_block(Manager *mgr, size_t slot, size_t new_size)
+static OpResult shrink_block(Manager *mgr, size_t slot, size_t new_size)
 {
     size_t cut = mgr->blocks[slot].size - new_size;
     Block rest;
@@ -377,22 +406,20 @@ static void shrink_block(Manager *mgr, size_t slot, size_t new_size)
         mgr->blocks[slot + 1].size += cut;
         mgr->blocks[slot].size = new_size;
     } else {
-        if (!make_room(mgr, 1)) {
-            printf("Resize failed: out of memory for block records. Allocation unchanged.\n");
-            return;
-        }
+        if (!make_room(mgr, 1))
+            return OP_ERR_NO_RECORD_MEM;
         rest.start = mgr->blocks[slot].start + new_size;
         rest.size = cut;
         rest.id = 0;
-        rest.is_free = 1;
+        rest.is_free = true;
         mgr->blocks[slot].size = new_size;
         insert_block(mgr, slot + 1, rest);
     }
     merge_free_blocks(mgr);
-    printf("Resize successful. Shrunk to %zu bytes.\n", new_size);
+    return OP_SHRUNK;
 }
 
-static void grow_block(Manager *mgr, size_t slot, size_t new_size)
+static OpResult grow_block(Manager *mgr, size_t slot, size_t new_size, size_t *out_start)
 {
     size_t old_size = mgr->blocks[slot].size;
     size_t old_start = mgr->blocks[slot].start;
@@ -406,64 +433,49 @@ static void grow_block(Manager *mgr, size_t slot, size_t new_size)
         mgr->blocks[slot].size = new_size;
         mgr->blocks[slot + 1].start += extra;
         mgr->blocks[slot + 1].size -= extra;
-        memset(mgr->pool + old_start + old_size, id & 0xFF, extra);
+        /* Fill newly expanded bytes with the low byte of the ID for debugging */
+        memset(mgr->pool + old_start + old_size, id & DEBUG_BYTE_MASK, extra);
         if (mgr->blocks[slot + 1].size == 0)
             remove_block(mgr, slot + 1);
-        printf("Resize successful. Expanded in place to %zu bytes.\n", new_size);
-        return;
+        return OP_EXPANDED_IN_PLACE;
     }
 
     target = find_free_block(mgr, new_size);
-    if (target == NOT_FOUND) {
-        report_no_fit(mgr, "Resize", new_size);
-        printf("The original allocation is unchanged.\n");
-        return;
-    }
-    if (mgr->blocks[target].size > new_size && !make_room(mgr, 1)) {
-        printf("Resize failed: out of memory for block records. Allocation unchanged.\n");
-        return;
-    }
+    if (target == NOT_FOUND)
+        return OP_ERR_NO_FIT;
+    if (mgr->blocks[target].size > new_size && !make_room(mgr, 1))
+        return OP_ERR_NO_RECORD_MEM;
 
     target_start = mgr->blocks[target].start;
     memmove(mgr->pool + target_start, mgr->pool + old_start, old_size);
-    memset(mgr->pool + target_start + old_size, id & 0xFF, extra);
+    /* Fill newly expanded bytes after moving with the low byte of the ID for debugging */
+    memset(mgr->pool + target_start + old_size, id & DEBUG_BYTE_MASK, extra);
 
-    mgr->blocks[slot].is_free = 1;
+    mgr->blocks[slot].is_free = true;
     mgr->blocks[slot].id = 0;
     carve_block(mgr, target, new_size, id);
     merge_free_blocks(mgr);
-    printf("Resize successful. Moved to start %zu, new size %zu bytes.\n",
-           target_start, new_size);
+    *out_start = target_start;
+    return OP_MOVED;
 }
 
-static void resize_memory(Manager *mgr, size_t id_value, size_t new_size)
+static OpResult resize_memory(Manager *mgr, size_t id_value, size_t new_size, size_t *out_start)
 {
     size_t slot;
+    OpResult res;
 
-    if (id_value == 0 || id_value > INT_MAX) {
-        printf("Invalid ID: allocation IDs are positive numbers.\n");
-        return;
-    }
-    if (new_size == 0 || new_size > mgr->pool_size) {
-        printf("Invalid size: must be between 1 and %zu.\n", mgr->pool_size);
-        return;
-    }
+    if (new_size == 0 || new_size > mgr->pool_size)
+        return OP_ERR_INVALID_SIZE;
 
-    slot = find_by_id(mgr, (int)id_value);
-    if (slot == NOT_FOUND) {
-        if (id_value < (size_t)mgr->next_id)
-            printf("ID %zu is already released.\n", id_value);
-        else
-            printf("Unknown allocation ID: %zu.\n", id_value);
-        return;
-    }
+    res = find_allocation(mgr, id_value, &slot);
+    if (res != OP_OK)
+        return res;
 
     if (new_size == mgr->blocks[slot].size)
-        printf("Allocation already has that size. Nothing changed.\n");
-    else if (new_size < mgr->blocks[slot].size)
-        shrink_block(mgr, slot, new_size);
-    else
-        grow_block(mgr, slot, new_size);
+        return OP_NO_CHANGE;
+    if (new_size < mgr->blocks[slot].size)
+        return shrink_block(mgr, slot, new_size);
+    return grow_block(mgr, slot, new_size, out_start);
 }
 
 static void display_map(const Manager *mgr)
@@ -506,44 +518,99 @@ static void print_menu(void)
            "7. Exit\n\n");
 }
 
-static int ask_and_allocate(Manager *mgr)
+static void print_id_error(OpResult res, size_t id_value)
+{
+    if (res == OP_ERR_INVALID_ID)
+        printf("Invalid ID: allocation IDs are positive numbers.\n");
+    else if (res == OP_ERR_ALREADY_RELEASED)
+        printf("ID %zu is already released.\n", id_value);
+    else if (res == OP_ERR_UNKNOWN_ID)
+        printf("Unknown allocation ID: %zu.\n", id_value);
+}
+
+static bool ask_and_allocate(Manager *mgr)
 {
     size_t size;
+    int id;
+    size_t start;
+    OpResult res;
     InputState state = read_number("Requested size: ", &size);
+
     if (state == INPUT_EOF)
-        return 0;
-    if (state == INPUT_OK)
-        allocate_memory(mgr, size);
-    return 1;
+        return false;
+    if (state == INPUT_OK) {
+        res = allocate_memory(mgr, size, &id, &start);
+        if (res == OP_OK)
+            printf("Allocation successful. ID: %d, Start: %zu, Size: %zu\n",
+                   id, start, size);
+        else if (res == OP_ERR_INVALID_SIZE)
+            printf("Invalid size: must be between 1 and %zu.\n", mgr->pool_size);
+        else if (res == OP_ERR_NO_IDS)
+            printf("Allocation failed: no more allocation IDs available.\n");
+        else if (res == OP_ERR_NO_FIT)
+            report_no_fit(mgr, "Allocation", size);
+        else if (res == OP_ERR_NO_RECORD_MEM)
+            printf("Allocation failed: out of memory for block records.\n");
+    }
+    return true;
 }
 
-static int ask_and_release(Manager *mgr)
+static bool ask_and_release(Manager *mgr)
 {
     size_t id_value;
+    OpResult res;
     InputState state = read_number("Allocation ID: ", &id_value);
+
     if (state == INPUT_EOF)
-        return 0;
-    if (state == INPUT_OK)
-        release_memory(mgr, id_value);
-    return 1;
+        return false;
+    if (state == INPUT_OK) {
+        res = release_memory(mgr, id_value);
+        if (res == OP_OK)
+            printf("Allocation released.\n");
+        else
+            print_id_error(res, id_value);
+    }
+    return true;
 }
 
-static int ask_and_resize(Manager *mgr)
+static bool ask_and_resize(Manager *mgr)
 {
     size_t id_value;
     size_t new_size;
+    size_t target_start;
+    OpResult res;
     InputState state = read_number("Allocation ID: ", &id_value);
+
     if (state == INPUT_EOF)
-        return 0;
+        return false;
     if (state == INPUT_BAD)
-        return 1;
+        return true;
 
     state = read_number("New size: ", &new_size);
     if (state == INPUT_EOF)
-        return 0;
-    if (state == INPUT_OK)
-        resize_memory(mgr, id_value, new_size);
-    return 1;
+        return false;
+    if (state == INPUT_OK) {
+        res = resize_memory(mgr, id_value, new_size, &target_start);
+        if (res == OP_ERR_INVALID_SIZE)
+            printf("Invalid size: must be between 1 and %zu.\n", mgr->pool_size);
+        else if (res == OP_NO_CHANGE)
+            printf("Allocation already has that size. Nothing changed.\n");
+        else if (res == OP_SHRUNK)
+            printf("Resize successful. Shrunk to %zu bytes.\n", new_size);
+        else if (res == OP_EXPANDED_IN_PLACE)
+            printf("Resize successful. Expanded in place to %zu bytes.\n", new_size);
+        else if (res == OP_MOVED)
+            printf("Resize successful. Moved to start %zu, new size %zu bytes.\n",
+                   target_start, new_size);
+        else if (res == OP_ERR_NO_FIT) {
+            report_no_fit(mgr, "Resize", new_size);
+            printf("The original allocation is unchanged.\n");
+        } else if (res == OP_ERR_NO_RECORD_MEM)
+            printf("Resize failed: out of memory for block records. Allocation unchanged.\n");
+        else
+            print_id_error(res, id_value);
+    }
+    return true;
 }
 
 int main(void)
@@ -552,7 +619,7 @@ int main(void)
     size_t pool_size = 0;
     size_t choice;
     InputState state;
-    int running = 1;
+    bool running = true;
 
     while (1) {
         state = read_number("Enter memory pool size: ", &pool_size);
@@ -586,18 +653,18 @@ int main(void)
         if (state == INPUT_BAD)
             continue;
 
-        switch (choice) {
-        case 1: running = ask_and_allocate(&mgr); break;
-        case 2: running = ask_and_release(&mgr); break;
-        case 3: running = ask_and_resize(&mgr); break;
-        case 4: display_map(&mgr); break;
-        case 5: display_stats(&mgr); break;
-        case 6:
+        switch ((MenuOption)choice) {
+        case MENU_ALLOCATE: running = ask_and_allocate(&mgr); break;
+        case MENU_RELEASE: running = ask_and_release(&mgr); break;
+        case MENU_RESIZE: running = ask_and_resize(&mgr); break;
+        case MENU_DISPLAY_MAP: display_map(&mgr); break;
+        case MENU_DISPLAY_STATS: display_stats(&mgr); break;
+        case MENU_CHANGE_STRATEGY:
             running = ask_strategy(&mgr.strategy);
             if (running)
                 printf("Strategy set to %s.\n", strategy_name(mgr.strategy));
             break;
-        case 7: running = 0; break;
+        case MENU_EXIT: running = false; break;
         default: printf("Invalid choice: pick a number from 1 to 7.\n");
         }
     }
